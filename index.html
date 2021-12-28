@@ -1,53 +1,78 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <script type='text/javascript' src='https://cdn.scaledrone.com/scaledrone.min.js'></script>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width">
-  <style>
-    body {
-      display: flex;
-      height: 100vh;
-      margin: 0;
-      align-items: center;
-      justify-content: center;
-      padding: 0 50px;
-      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    }
-    video {
-      max-width: calc(50% - 100px);
-      margin: 0 50px;
-      box-sizing: border-box;
-      border-radius: 2px;
-      padding: 0;
-      box-shadow: rgba(156, 172, 172, 0.2) 0px 2px 2px, rgba(156, 172, 172, 0.2) 0px 4px 4px, rgba(156, 172, 172, 0.2) 0px 8px 8px, rgba(156, 172, 172, 0.2) 0px 16px 16px, rgba(156, 172, 172, 0.2) 0px 32px 32px, rgba(156, 172, 172, 0.2) 0px 64px 64px;
-    }
-    .copy {
-      position: fixed;
-      top: 10px;
-      left: 50%;
-      transform: translateX(-50%);
-      font-size: 16px;
-      color: rgba(0, 0, 0, 0.5);
-    }
-  </style>
+<script type='text/javascript' src='https://cdn.scaledrone.com/scaledrone.min.js'></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<link rel="stylesheet" type="text/css" href="http://partprime.iptime.org:11080/resources/app-assets/css/bootstrap-extended.css">
+<link rel="stylesheet" type="text/css" href="http://partprime.iptime.org:11080/resources/app-assets/css/bootstrap.css">
+<style>
+video {
+	max-width: calc(50% - 100px);
+	margin: 0 50px;
+	box-sizing: border-box;
+	border-radius: 2px;
+	padding: 0;
+	box-shadow: rgba(156, 172, 172, 0.2) 0px 2px 2px,
+		rgba(156, 172, 172, 0.2) 0px 4px 4px, rgba(156, 172, 172, 0.2) 0px 8px
+		8px, rgba(156, 172, 172, 0.2) 0px 16px 16px, rgba(156, 172, 172, 0.2)
+		0px 32px 32px, rgba(156, 172, 172, 0.2) 0px 64px 64px;
+}
+</style>
 </head>
 <body>
-  <div class="copy"><span id="ip_addr"></span><button class="btn_copy">주소복사</button><br/>이 URL 주소를 회의 참가자들에게 전달하시고, 화상회의를 시작하세요.</div>
-  <video id="localVideo" autoplay muted></video>
-  <video id="remoteVideo" autoplay></video>
-  <script src="script.js"></script>
-  <script>
-    ip_addr.innerHTML = "" + window.location.href + " "
-    document.querySelector(".btn_copy").addEventListener("click", function(){
-      var tempElem = document.createElement('textarea');
-      tempElem.value = '' + window.location.href;  
-      document.body.appendChild(tempElem);
-    
-      tempElem.select();
-      document.execCommand("copy");
-      document.body.removeChild(tempElem);
-    });
-  </script>
+	<div class="app-content content ">
+		<div class="content-wrapper container-xxl p-0">
+			<div class="row">
+				<div class="col-12">
+					<div class="card">
+						<div class="card-header">
+							<h4 class="card-title">1:1 화상회의</h4>
+						</div>
+						<!-- 				<div class="col-sm-10 d-flex"> -->
+						<!-- 					<div class="input-group"> -->
+						<!-- 						<input type="text" class="form-control" placeholder="Url" id="videoConfUrl" name="videoConfUrl" value="${zoomDetail.videoConfUrl}" disabled /> -->
+						<!-- 						<div class="col-1 cursor-pointer form-control" onclick="copyToClipboard('${zoomDetail.videoConfUrl}')"> -->
+						<!-- 							<i data-feather="copy" style="width: 100%; height: 100%"></i> <label id="copyCompleteText" style="display: none; color: #28c76f; position: absolute; bottom: -60%;">복사완료!</label> -->
+						<!-- 						</div> -->
+
+						<!-- 					</div> -->
+						<!-- 				</div> -->
+						<div style="padding:5%">
+							<div>
+								<div class="copy input-group col-12 mb-1">
+									<span class="form-control col-10" id="ip_addr"></span>
+									<button class="btn_copy form-control col-2">주소복사</button>
+								</div>
+								<div class="col-12 text-center mb-5">
+									<span>이 URL 주소를 회의 참가자들에게 전달하시고, 화상회의를 시작하세요.</span>
+								</div>
+							</div>
+							<div class="d-flex mb-5 justify-content-between">
+								<video id="localVideo" autoplay muted></video>
+								<video id="remoteVideo" autoplay></video>
+							</div>
+						</div>
+					</div>
+
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<script src="script.js"></script>
+	<script>
+		ip_addr.innerHTML = "" + window.location.href + " "
+		document.querySelector(".btn_copy").addEventListener("click",
+				function() {
+					var tempElem = document.createElement('textarea');
+					tempElem.value = '' + window.location.href;
+					document.body.appendChild(tempElem);
+
+					tempElem.select();
+					document.execCommand("copy");
+					document.body.removeChild(tempElem);
+				});
+	</script>
 </body>
 </html>
