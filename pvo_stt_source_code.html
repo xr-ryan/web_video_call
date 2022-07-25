@@ -1,0 +1,594 @@
+<html><head lang="en">
+    <meta charset="UTF-8">
+    <title>Power Voice STT Demo</title>
+    <link rel="stylesheet" href="bootstrap-4.3.1-dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="style/jquery.dm-uploader.min.css">
+	<link rel="stylesheet" href="iconic/font/css/open-iconic-bootstrap.min.css">
+    <link rel="stylesheet" href="style/site.css">
+    <link rel="stylesheet" href="style/styles.css">
+
+    <link rel="icon" type="image/png" href="img/PV_Logo_sign.png">
+
+    <script src="js/jquery-1.11.1.min.js"></script>
+	<script src="bootstrap-4.3.1-dist/js/bootstrap.min.js"></script>
+	<script src="js/resampler.js"></script>
+    <script src="js/jquery.dm-uploader.min.js"></script>
+<script type="text/javascript">
+    var isAuthenticated = false;
+    var isRecording = false;
+    var endpointCount = 0;
+    var threshold = 50;
+
+    var authKey = '';
+    var wsauth;
+
+    var audioURI;
+    var wsaudio;
+    var audioCtx;
+    var inputSrc;
+    var mediaStream;
+    var toSampleRate = 16000;
+	var bufferArray= [];
+
+    var serverloc = window.location;
+
+    var isAudioContextSupported = function (){
+   	     window.AudioContext = window.AudioContext || window.webkitAudioContext;
+   	     if(window.AudioContext) return true;
+   	     else return false;
+    };
+
+    $(document).ready(function(){
+	     isAuthenticated = false;
+	     isRecording = false;
+	     endpointCount = 0;
+
+	     if(! isAudioContextSupported()){
+		      document.getElementById("startbtn").disabled = true;
+		      document.getElementById("quitbtn").disabled = true;
+		      alert('Web Audio API is not supported in this browser\nTry Chrome, Safari or MS Edge !');
+	     }
+	     else {
+		      document.getElementById("startbtn").disabled = false;
+		      document.getElementById("quitbtn").disabled = true;
+
+		      $.ajax({
+		           url: 'https://' + serverloc.host + '/ossm/speech/recognition/tempkey',
+		    	   async: true,
+		    	   type: 'POST',
+		      })
+		      .done(function(json){
+		    	   authKey = json.TEMP_KEY;
+              });
+	     }
+    });
+
+    function start(){
+// document.getElementById("messagearea").value = '';
+		 document.getElementById("messageflash").value = '';
+
+         wsauth = new WebSocket('wss://' + serverloc.host + '/ossm/speech/recognition/auth');
+         wsauth.onopen = function(e){ onAuthSessionOpen(e) };
+		 wsauth.onmessage = function(e){ onAuthSessionMessage(e) };
+		 wsauth.onclose = function(e){ onAuthSessionClose(e) };
+		 wsauth.onerror = function(e){ onAuthError(e) };
+	}
+
+    function onAuthError(evt){
+         alert('Authentication process error !');
+    }
+
+    function onAuthSessionOpen(evt){
+    	 // Web Audio API
+    	 /*
+    	 let constraints = {
+              audio: {
+    	           sampleRate:16000,
+    	           sampleSize:16
+              },
+              video: false
+         }
+    	 */
+
+		 if(!navigator.getUserMedia) navigator.getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia;
+
+         if(navigator.getUserMedia){
+			  // navigator.getUserMedia(constraints, sendAuthMessage, function(e){
+			  navigator.getUserMedia({audio:{echoCancellation: false, noiseSuppression: false, autoGainControl: false, mozNoiseSuppression: false, mozAutoGainControl: false}, video: false}, sendAuthMessage, function(e){
+                   alert('No live audio input !');
+                   wsauth.close();
+              });
+         }
+		 else {
+			  alert('Web Audio API is not supported in this browser\nTry Chrome, Safari or MS Edge !');
+			  wsauth.close();
+		 }
+    }
+
+    function sendAuthMessage(stream){
+    	 mediaStream = stream;
+         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+         inputSrc = audioCtx.createMediaStreamSource(mediaStream);
+		 fromSampleRate = inputSrc.context.sampleRate;
+
+		 logging ("Device Input Sample Rate : " + fromSampleRate, 1, null);
+
+    	 let auth = new Object();
+         auth.AUTH_KEY = authKey;
+    	 auth.DATA_FORMAT = 'pcm';              // pcm | alaw | mulaw, default - pcm
+    	 auth.RESOLUTION = 32;                  // 16-bit signed | 32-bit float, default - 16
+    	 auth.DATA_TYPE = "float";              // signed | unsigned | float, default - signed
+    	 auth.SAMPLE_RATE = fromSampleRate;
+    	 auth.CHANNEL_INDEX = 7;
+
+    	 // Resampled Case .....
+    	 /*
+    	 auth.RESOLUTION = 16;                  // 16-bit signed | 32-bit float, default - 16
+    	 auth.DATA_TYPE = "signed";             // signed | unsigned | float, default - signed
+    	 auth.SAMPLE_RATE = 16000;
+    	 */
+
+         wsauth.send(JSON.stringify(auth));
+    }
+
+    function onAuthSessionMessage(e){
+		 let response = JSON.parse(e.data);
+
+         logging('Authentication Result : ' + response.status, 1, null);
+
+		 if(response.status == "AUTHENTICATED"){
+			  isAuthenticated = true;
+			  audioURI = 'wss://' + serverloc.host + response.url;
+		 }
+
+		 wsauth.close();
+    }
+
+    function onAuthSessionClose(evt){
+		 let reason;
+
+		 if(evt.code == 1000)
+              // reason = "Normal closure, meaning that the purpose for which the connection was established has been fulfilled.";
+              reason = "The connection was closed normally";
+         else if(evt.code == 1001)
+              reason = "An endpoint is going away, such as a server going down or a browser having navigated away from a page.";
+         else if(evt.code == 1002)
+              reason = "An endpoint is terminating the connection due to a protocol error";
+         else if(evt.code == 1003)
+              reason = "An endpoint is terminating the connection because it has received a type of data it cannot accept (e.g., an endpoint that understands only text data MAY send this if it receives a binary message).";
+         else if(evt.code == 1004)
+              reason = "Reserved. The specific meaning might be defined in the future.";
+         else if(evt.code == 1005)
+              reason = "No status code was actually present.";
+         else if(evt.code == 1006)
+              reason = "The connection was closed abnormally";
+         else if(evt.code == 1007)
+              reason = "An endpoint is terminating the connection because it has received data within a message that was not consistent with the type of the message (e.g., non-UTF-8 [http://tools.ietf.org/html/rfc3629] data within a text message).";
+         else if(evt.code == 1008)
+              reason = "An endpoint is terminating the connection because it has received a message that \"violates its policy\". This reason is given either if there is no other sutible reason, or if there is a need to hide specific details about the policy.";
+         else if(evt.code == 1009)
+              reason = "An endpoint is terminating the connection because it has received a message that is too big for it to process.";
+         else if(evt.code == 1010)
+              reason = "An endpoint (client) is terminating the connection because it has expected the server to negotiate one or more extension, but the server didn't return them in the response message of the WebSocket handshake. <br /> Specifically, the extensions that are needed are: " + event.reason;
+         else if(evt.code == 1011)
+              reason = "A server is terminating the connection because it encountered an unexpected condition that prevented it from fulfilling the request.";
+         else if(evt.code == 1015)
+              reason = "The connection was closed due to a failure to perform a TLS handshake (e.g., the server certificate can't be verified).";
+         else reason = "Unknown reason";
+
+		 if(evt.code != 1000) logging('Authentication session terminated : ' + reason, 1, null);
+
+		 if(isAuthenticated){
+	          wsaudio = new WebSocket(audioURI);
+			  wsaudio.binaryType = 'arraybuffer';
+	          wsaudio.onopen = function(e){ onAudioSessionOpen(e) };
+			  wsaudio.onmessage = function(e){ onAudioSessionMessage(e) };
+			  wsaudio.onclose = function(e){ onAudioSessionClose(e) };
+			  wsaudio.onerror = function(e){ onAudioError(e) };
+		 }
+    }
+
+    function onAudioSessionOpen(evt){
+		 isRecording = true;
+		 document.getElementById("startbtn").disabled = true;
+         document.getElementById("quitbtn").disabled = false;
+
+         logging('START recording !', 1, null);
+
+         let bufferSize = 1024 * 1;
+         recorder = audioCtx.createScriptProcessor(bufferSize, 1, 1);
+
+         recorder.onaudioprocess = function(mediaStream){
+              if(!isRecording) return;
+
+              bufferArray = [];
+              let data = mediaStream.inputBuffer.getChannelData(0);      // return Float32Array PCM RAW
+              bufferArray.push.apply(bufferArray, data);
+
+			  wsaudio.send(new Float32Array(bufferArray));
+         }
+
+         inputSrc.connect(recorder)
+         recorder.connect(audioCtx.destination);
+    }
+
+    function onAudioSessionMessage(evt){
+		 let response = JSON.parse(evt.data);
+
+		 if(response.status == 'SUCCESS'){
+              if(response.endpoint){
+			       if(response.text){
+			            logging(response.text, response.confidence, response.words);
+			       }
+
+		           endpointCount++;
+
+		           if(endpointCount >= threshold){
+		    	        logging('This demo session has expired. Please start again.', 1, null);
+		    	        wsaudio.close();
+		    	        audioCtx.close();
+		           }
+		      }
+		      else {
+                   flashlogging(response.text);
+		      }
+		 }
+		 else {
+			  logging(response.errorMsg, 1, null);
+			  quit();
+		 }
+    }
+
+    function onAudioSessionClose(evt){
+		 var reason;
+
+		 if(evt.code == 1000)
+              // reason = "Normal closure, meaning that the purpose for which the connection was established has been fulfilled.";
+              reason = "The connection was closed normally";
+         else if(evt.code == 1001)
+              reason = "An endpoint is going away, such as a server going down or a browser having navigated away from a page.";
+         else if(evt.code == 1002)
+              reason = "An endpoint is terminating the connection due to a protocol error";
+         else if(evt.code == 1003)
+              reason = "An endpoint is terminating the connection because it has received a type of data it cannot accept (e.g., an endpoint that understands only text data MAY send this if it receives a binary message).";
+         else if(evt.code == 1004)
+              reason = "Reserved. The specific meaning might be defined in the future.";
+         else if(evt.code == 1005)
+              reason = "No status code was actually present.";
+         else if(evt.code == 1006)
+              reason = "The connection was closed abnormally";
+         else if(evt.code == 1007)
+              reason = "An endpoint is terminating the connection because it has received data within a message that was not consistent with the type of the message (e.g., non-UTF-8 [http://tools.ietf.org/html/rfc3629] data within a text message).";
+         else if(evt.code == 1008)
+              reason = "An endpoint is terminating the connection because it has received a message that \"violates its policy\". This reason is given either if there is no other sutible reason, or if there is a need to hide specific details about the policy.";
+         else if(evt.code == 1009)
+              reason = "An endpoint is terminating the connection because it has received a message that is too big for it to process.";
+         else if(evt.code == 1010)
+              reason = "An endpoint (client) is terminating the connection because it has expected the server to negotiate one or more extension, but the server didn't return them in the response message of the WebSocket handshake. <br /> Specifically, the extensions that are needed are: " + event.reason;
+         else if(evt.code == 1011)
+              reason = "A server is terminating the connection because it encountered an unexpected condition that prevented it from fulfilling the request.";
+         else if(evt.code == 1015)
+              reason = "The connection was closed due to a failure to perform a TLS handshake (e.g., the server certificate can't be verified).";
+         else reason = "Unknown reason";
+
+		 if(evt.code != 1000) logging('Audio session terminated : ' + reason, 1, null);
+		 else logging('STOP recording !', 1, null);
+
+		 initicate();
+    }
+
+    function initicate(){
+		 document.getElementById("startbtn").disabled = false;
+		 document.getElementById("quitbtn").disabled = true;
+
+		 endpointCount = 0;
+         isAuthenticated = false;
+		 isRecording = false;
+    }
+
+    function quit(){
+    	 if(isRecording){
+		      wsaudio.close();
+		      audioCtx.close();
+
+		      initicate();
+    	 }
+    }
+
+    function logging(message, confidence, words){
+	     // document.getElementById("messagearea").value += message + '\n';
+		 // document.getElementById("messagearea").scrollTop = document.getElementById("messagearea").scrollHeight;
+
+		 var res = "";
+		 var clr = "";
+		 res = $("#messagearea").html();
+         $("#messagearea").html("");
+
+         if(!words){
+              if(confidence >= 0.9) clr = "conf-high";
+              else if(confidence < 0.8) clr = "conf-low";
+              else clr = "conf-mid";
+
+              res += "<span class='" + clr + "' title='" + confidence + "'>" + message + "</span><br>";
+         }
+         else {
+              var newmessage = "";
+              var word = "";
+              var len = 0;
+              for(i = 0; i < words.length; i++){
+                   word = words[i][2];
+                   len += word.length;
+
+                   if(words[i][3] >= 0.9) clr = "conf-high";
+                   else if(words[i][3] < 0.8) clr = "conf-low";
+                   else clr = "conf-mid";
+
+                   newmessage += "<span class='" + clr + "' title='" + words[i][3] + "'>" + word + "</span>";
+
+                   if(message.charAt(len) == ' '){
+                        newmessage += "&nbsp;";
+                        len += 1;
+                   }
+              }
+
+              newmessage += "<br>";
+              res += newmessage;
+         }
+
+         $("#messagearea").html(res);
+    }
+
+    function flashlogging(message){
+	     document.getElementById("messageflash").value = message;
+    }
+
+    function textlogging(message){
+	     document.getElementById("messagetext").value += message + '\n';
+		 document.getElementById("messagetext").scrollTop = document.getElementById("messagetext").scrollHeight;
+    }
+
+    function startRecord(stream){
+         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+         input = audioCtx.createMediaStreamSource(stream);
+		 fromSampleRate = input.context.sampleRate;
+
+         /*
+		 var bufferSize = 2048 * 2;
+		 logging (bufferSize, 1, null);
+         recorder = audioCtx.createScriptProcessor(bufferSize, 1, 1);
+         resampler = new Resampler(fromSampleRate, toSampleRate, 1, bufferSize);
+
+         recorder.onaudioprocess = function(stream){
+              if(!isRecording) return;
+
+			  bufferArray = [];
+              outBuf = resampler.resample(event.inputBuffer.getChannelData(0));
+              //var data = stream.inputBuffer.getChannelData(0); // return Float32Array PCM RAW
+
+			  bufferArray.push.apply(bufferArray, outBuf);
+
+              wsaudio.send(floatTo16BitPCM(new Float32Array(bufferArray)));
+         }
+		 */
+
+         var bufferSize = 1024 * 1;
+		 logging (bufferSize, 1, null);
+         recorder = audioCtx.createScriptProcessor(bufferSize, 1, 1);
+
+         recorder.onaudioprocess = function(stream){
+              if(!isRecording) return;
+              bufferArray = [];
+              var data = stream.inputBuffer.getChannelData(0); // return Float32Array PCM RAW
+              bufferArray.push.apply(bufferArray, data);
+              // wsaudio.send(convertFloat32ToInt16(new Float32Array(bufferArray)));
+			  wsaudio.send(new Float32Array(bufferArray));
+         }
+
+         input.connect(recorder);
+         recorder.connect(audioCtx.destination);
+    }
+
+    function convertFloat32ToInt16(buffer){
+         l = buffer.length;
+         buf = new Int16Array(l);
+         while(l--){
+              buf[l] = Math.min(1, buffer[l])*0x7FFF;
+         }
+
+         return buf.buffer;
+    }
+
+    function floatTo16BitPCM(input){
+         let i = input.length;
+         let output = new Int16Array(i);
+         while(i--){
+              let s = Math.max(-1, Math.min(1, input[i]));
+              output[i] = (s < 0 ? s * 0x8000 : s * 0x7FFF);
+         }
+  
+         return output;
+    }
+
+    function ui_add_file(id, file){
+         var template = $('#files-template').text();
+         template = template.replace('%%filename%%', file.name);
+
+         template = $(template);
+         template.prop('id', 'uploaderFile' + id);
+         template.data('file-id', id);
+
+         $('#files').find('li.empty').fadeOut();
+         $('#files').prepend(template);
+    }
+
+    function update_file_status(id, status, message){
+         $('#uploaderFile' + id).find('span').html(message).prop('class', 'status text-' + status);
+    }
+
+    function update_file_progress(id, percent, color, active){
+         color = (typeof color === 'undefined' ? false : color);
+         active = (typeof active === 'undefined' ? true : active);
+
+         var bar = $('#uploaderFile' + id).find('div.progress-bar');
+
+         bar.width(percent + '%').attr('aria-valuenow', percent);
+         bar.toggleClass('progress-bar-striped progress-bar-animated', active);
+
+         if(percent === 0){
+              bar.html('');
+         }
+		 else {
+              bar.html(percent + '%');
+         }
+
+         if(color !== false){
+              bar.removeClass('bg-success bg-info bg-warning bg-danger');
+              bar.addClass('bg-' + color);
+         }
+    }
+
+	$(function(){
+         $('#drag-and-drop-zone').dmUploader({
+              url: 'https://' + serverloc.host + '/ossm/speech/recognition/audiofile',
+              maxFileSize: 10000000000,
+			  multiple: false,
+              method: 'POST',
+              dataType: 'json',
+              extFilter: ["wav", "pcm"],
+			  extraData: function(){
+				   return {
+					    "userid": "WebDemoUser",
+	                    "authkey": authKey
+				   };
+			  },
+			  onDragEnter: function(){
+                   this.addClass('active');
+              },
+              onDragLeave: function(){
+                   this.removeClass('active');
+              },
+              onInit: function(){
+              },
+              onComplete: function(){
+              },
+              onNewFile: function(id, file){
+                   ui_add_file(id, file);
+              },
+              onBeforeUpload: function(id){
+                  update_file_status(id, 'uploading', 'Uploading...');
+                  update_file_progress(id, 0, '', true);
+              },
+              onUploadCanceled: function(id){
+                  update_file_status(id, 'warning', 'Canceled by User');
+                  update_file_progress(id, 0, 'warning', false);
+              },
+              onUploadProgress: function(id, percent){
+                   update_file_progress(id, percent);
+              },
+              onUploadSuccess: function(id, data){
+                   textlogging(data.text);
+                   update_file_status(id, 'success', 'Upload Complete');
+                   update_file_progress(id, 100, 'success', false);
+              },
+              onUploadError: function(id, xhr, status, message){
+                   update_file_status(id, 'danger', message);
+                   update_file_progress(id, 0, 'danger', false);  
+              },
+              onFallbackMode: function(){
+                   alert('The file upload plugin cannot be used here, running other browsers');
+              },
+              onFileSizeError: function(file){
+                   alert('File \'' + file.name + '\' cannot be added: Size excess limit');
+              },
+              onFileExtError: function(file){
+                  alert('File \'' + file.name + '\' cannot be added: Only wav or pcm file');
+              }
+         });
+
+		 $('a[data-toggle="tab"]').on('shown.bs.tab', function(e){
+			  let str = e.target.toString();
+			  let index = str.indexOf("#mic");
+
+			  if(index > -1){
+			  }
+			  else {
+				   quit();
+			  }
+         });
+    });
+</script></head>
+
+
+<body>
+<div class="container">
+    <div class="page-header">
+         <h1 style="font-size: 40px; color: #A6A6A6; font-style: italic;"><img src="img/PV_Logo_sign.png"> Speech to Text Demo</h1>
+    </div>
+    <br>
+    <ul class="nav nav-tabs" role="tablist">
+	     <li class="nav-item"><a class="nav-link active" data-toggle="tab" href="#mic"><i class="oi oi-microphone"></i>&nbsp;&nbsp; Microphone</a></li>
+         <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#fileupload"><i class="oi oi-data-transfer-upload"></i>&nbsp;&nbsp; File Upload</a></li>
+    </ul>
+    <div class="tab-content">
+		 <div id="mic" class="container tab-pane active">
+              <br>
+              <button class="btn btn-primary" id="startbtn" onclick="start();">Start Recording</button>
+              <button class="btn btn-primary" id="quitbtn" onclick="quit();" disabled="">Stop Recording</button>
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+
+              <div id="result-textarea-container">
+		           <!-- <textarea id="messagearea" style="resize:none;width:750px;height:500px; border: solid 2px #1E90FF; padding: 10px; overflow:auto;"></textarea> -->
+		           <div contenteditable="" id="messagearea" style="resize:none;width:750px;height:500px; border: solid 2px #1E90FF; padding: 10px; overflow:auto;"></div>
+              </div>
+	          <div id="stt-textarea-container">
+		           <textarea id="messageflash" style="resize:none;width:750px;height:60px; border: solid 2px #1E90FF; padding: 10px;"></textarea>
+              </div>
+         </div>
+		 <div id="fileupload" class="container tab-pane fade">
+        	  <div class="row">
+                   <div class="col-md-6 col-sm-12">
+                        <div id="drag-and-drop-zone" class="dm-uploader p-5">
+                             <h3 class="mb-5 mt-5 text-muted">Drag &amp; drop voice file here</h3>
+                             <div class="btn btn-primary btn-block mb-5">
+                                  <span>Open the File Browser</span>
+                                  <input type="file" accept=".wav, .pcm">
+                             </div>
+                        </div>
+                   </div>
+                   <div class="col-md-6 col-sm-12">
+                        <div class="card h-100">
+                             <div class="card-header" style="font-size: 15px; color: #A6A6A6; font-style: italic;"><i class="oi oi-list"></i>&nbsp;&nbsp; File list</div>
+                             <ul class="list-unstyled p-2 d-flex flex-column col" id="files">
+                                  <li class="text-muted text-center empty" style="font-size: 15px; color: #A6A6A6; font-style: italic;">No files uploaded.</li>
+                             </ul>
+
+                        </div>
+                   </div>
+              </div>
+
+			  <div id="stt-textarea-container">
+		           <textarea id="messagetext" style="resize:yes;width:1080px;height:150px;border:solid 2px #1E90FF;padding:0px;"></textarea>
+              </div>
+         </div>
+    </div>
+</div>
+<script type="text/html" id="files-template">
+    <li>
+         <div class="media-body mb-1">
+              <p class="mb-2">
+                   <strong>%%filename%%</strong> - Status: <span class="text-muted">Waiting</span>
+              </p>
+              <div class="progress mb-2">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                    </div>
+              </div>
+             
+              <hr class="mt-1 mb-1"/>
+         </div>
+    </li>
+</script>
+
+</body></html>
